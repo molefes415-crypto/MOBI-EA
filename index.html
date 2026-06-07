@@ -51,6 +51,30 @@
     @keyframes splashFade { 0% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; pointer-events: none; } }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     @keyframes splashLogoIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+    /* Neon color-cycling glow for chart scanner blocks (no stripes/lines) */
+    @keyframes neonHue { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+    @keyframes neonFlash {
+      0%,100% { box-shadow: 0 0 18px #FFD60099, 0 0 36px #FFD60055, inset 0 0 14px #FFD60044; border-color:#FFD600; }
+      25%     { box-shadow: 0 0 22px #00E5FFcc, 0 0 48px #00E5FF88, inset 0 0 18px #00E5FF55; border-color:#00E5FF; }
+      50%     { box-shadow: 0 0 24px #FF1F8Fcc, 0 0 52px #FF1F8F88, inset 0 0 20px #FF1F8F55; border-color:#FF1F8F; }
+      75%     { box-shadow: 0 0 22px #7CFF6Bcc, 0 0 48px #7CFF6B88, inset 0 0 18px #7CFF6B55; border-color:#7CFF6B; }
+    }
+    .neon-hazard {
+      position: relative;
+      border: 1.5px solid #FFD600 !important;
+      animation: neonFlash 3s ease-in-out infinite;
+      background: linear-gradient(135deg, rgba(20,20,20,0.85), rgba(40,20,40,0.85)) !important;
+    }
+    .neon-hazard::before {
+      content:''; position:absolute; inset:-2px; border-radius:inherit; pointer-events:none;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+      background-size: 200% 100%; animation: shimmer 2s linear infinite;
+      mix-blend-mode: overlay; opacity: 0.7;
+    }
+    @keyframes iconAlert { 0%,100% { box-shadow: 0 0 18px #fff, 0 0 38px #00E5FF, 0 0 60px #FF1F8F; transform: scale(1); } 50% { box-shadow: 0 0 28px #fff, 0 0 60px #00E5FF, 0 0 90px #FF1F8F; transform: scale(1.08); } }
+    .icon-alert { animation: iconAlert 0.9s ease-in-out infinite !important; }
+
     @keyframes splashTextIn { 0% { opacity: 0; transform: translateY(8px); letter-spacing: 10px; } 100% { opacity: 1; transform: translateY(0); letter-spacing: 8px; } }
     @keyframes splashBarFill { 0% { width: 0%; } 100% { width: 100%; } }
     @keyframes ringPulse { 0% { transform: scale(0.9); opacity: 0.3; } 50% { transform: scale(1.1); opacity: 0; } 100% { transform: scale(0.9); opacity: 0; } }
@@ -212,7 +236,7 @@
     const useToast = () => React.useContext(ToastContext);
 
     // ====== Draggable Bot Icon ======
-    const DraggableBotIcon = ({ image, onClose, onClick, tc }) => {
+    const DraggableBotIcon = ({ image, onClose, onClick, tc, pulse }) => {
       const posRef = useRef({ x: 20, y: window.innerHeight - 160 });
       const [pos, setPos] = useState(posRef.current);
       const draggingRef = useRef(false);
@@ -238,7 +262,7 @@
         <div className="draggable-icon animate-scale-in" style={{left:pos.x,top:pos.y}}
           onMouseDown={e=>handleStart(e.clientX,e.clientY)} onTouchStart={e=>handleStart(e.touches[0].clientX,e.touches[0].clientY)}
           onClick={()=>{ if(!movedRef.current) onClick?.(); }}>
-          <div style={{width:64,height:64,borderRadius:'50%',overflow:'hidden',animation:'float 3s ease-in-out infinite',background:`linear-gradient(135deg,${a},${tc?.dark||'#8B0000'})`,border:`2px solid ${a}`,boxShadow:`0 0 16px ${tc?.glow||'rgba(196,30,58,0.6)'}, 0 0 32px ${a}88, inset 0 0 12px rgba(0,0,0,0.3)`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+          <div className={pulse?'icon-alert':''} style={{width:64,height:64,borderRadius:'50%',overflow:'hidden',animation:pulse?undefined:'float 3s ease-in-out infinite',background:`linear-gradient(135deg,${a},${tc?.dark||'#8B0000'})`,border:`2px solid ${a}`,boxShadow:`0 0 16px ${tc?.glow||'rgba(196,30,58,0.6)'}, 0 0 32px ${a}88, inset 0 0 12px rgba(0,0,0,0.3)`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
             {image ? <img src={image} alt="Bot" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{fontSize:28,color:'white'}}>🤖</div>}
           </div>
         </div>
@@ -308,7 +332,7 @@
       );
     };
 
-    // ====== Bot Status Popup (Square card with status + logs + execution flow) ======
+    // ====== Bot Status Popup (Draggable floating trade panel) ======
     const BotStatusPopup = ({ botName, botImage, onClose, onRemove, onStop, onQuotes, tc, logs, isOnline }) => {
       const a = tc?.accent || '#C41E3A';
       const d = tc?.dark || '#8B0000';
@@ -316,47 +340,60 @@
       const displayName = botName || 'NAVIGATOR SCALPER PRO';
       const online = isOnline !== false;
       const tradeLogs = logs || [];
+
+      // Draggable panel
+      const initX = Math.max(8, (window.innerWidth - 380) / 2);
+      const initY = Math.max(40, (window.innerHeight - 560) / 2);
+      const posRef = useRef({ x: initX, y: initY });
+      const [pos, setPos] = useState(posRef.current);
+      const dragRef = useRef(false); const startRef = useRef({x:0,y:0}); const offRef = useRef({x:0,y:0});
+      const onDown = (cx,cy) => { dragRef.current=true; startRef.current={x:cx,y:cy}; offRef.current=posRef.current; };
+      const onMove = (cx,cy) => { if(!dragRef.current) return; const np={x:Math.max(0,Math.min(window.innerWidth-340,offRef.current.x+cx-startRef.current.x)),y:Math.max(0,Math.min(window.innerHeight-200,offRef.current.y+cy-startRef.current.y))}; posRef.current=np; setPos(np); };
+      const onUp = () => { dragRef.current=false; };
+      useEffect(() => {
+        const mm=e=>onMove(e.clientX,e.clientY); const mu=()=>onUp();
+        const tm=e=>{if(dragRef.current){e.preventDefault();onMove(e.touches[0].clientX,e.touches[0].clientY);}}; const te=()=>onUp();
+        window.addEventListener('mousemove',mm); window.addEventListener('mouseup',mu);
+        window.addEventListener('touchmove',tm,{passive:false}); window.addEventListener('touchend',te);
+        return()=>{window.removeEventListener('mousemove',mm);window.removeEventListener('mouseup',mu);window.removeEventListener('touchmove',tm);window.removeEventListener('touchend',te);};
+      }, []);
+
       return (
-        <div style={{position:'fixed',inset:0,zIndex:150,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.78)',backdropFilter:'blur(8px)',padding:16}} onClick={onClose} className="animate-fade-in">
-          <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:380,background:'#0c0c0c',borderRadius:18,border:`1px solid ${a}40`,boxShadow:`0 0 50px ${g}, 0 20px 60px rgba(0,0,0,0.6)`,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            {/* Header */}
-            <div style={{padding:'18px 20px',display:'flex',alignItems:'center',gap:12,borderBottom:`1px solid ${a}22`,background:`linear-gradient(135deg, ${a}15, transparent)`}}>
-              <div style={{width:44,height:44,borderRadius:10,overflow:'hidden',border:`1px solid ${a}60`,flexShrink:0,background:`linear-gradient(135deg,${a},${d})`,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                {botImage ? <img src={botImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:20}}>🤖</span>}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <p className="rubik-glitch" style={{color:'white',fontSize:13,letterSpacing:1.5,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{displayName}</p>
-                <div style={{display:'flex',alignItems:'center',gap:6,marginTop:4}}>
-                  <div style={{width:8,height:8,borderRadius:'50%',background:online?'#22c55e':'#ef4444',boxShadow:online?'0 0 10px rgba(34,197,94,0.7)':'0 0 10px rgba(239,68,68,0.7)',animation:online?'breathe 2s ease-in-out infinite':'none'}}/>
-                  <span style={{fontFamily:'Orbitron',fontSize:10,color:online?'#22c55e':'#ef4444',letterSpacing:3,fontWeight:700}}>{online?'ONLINE':'OFFLINE'}</span>
-                </div>
-              </div>
-              <button onClick={onClose} style={{width:30,height:30,borderRadius:8,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,0.5)',flexShrink:0}}><XIcon size={14}/></button>
+        <div style={{position:'fixed',left:pos.x,top:pos.y,zIndex:150,width:'92%',maxWidth:380,background:'#0c0c0c',borderRadius:18,border:`1px solid ${a}40`,boxShadow:`0 0 50px ${g}, 0 20px 60px rgba(0,0,0,0.6)`,overflow:'hidden',display:'flex',flexDirection:'column'}} className="animate-scale-in">
+          {/* Header — drag handle */}
+          <div onMouseDown={e=>onDown(e.clientX,e.clientY)} onTouchStart={e=>onDown(e.touches[0].clientX,e.touches[0].clientY)} style={{padding:'18px 20px',display:'flex',alignItems:'center',gap:12,borderBottom:`1px solid ${a}22`,background:`linear-gradient(135deg, ${a}15, transparent)`,cursor:'move',userSelect:'none'}}>
+            <div style={{width:44,height:44,borderRadius:10,overflow:'hidden',border:`1px solid ${a}60`,flexShrink:0,background:`linear-gradient(135deg,${a},${d})`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              {botImage ? <img src={botImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:20}}>🤖</span>}
             </div>
-
-            {/* Execution flow status */}
-            <div style={{padding:'14px 18px',background:`linear-gradient(135deg,${a}18,${d}18)`,borderBottom:`1px solid ${a}18`}}>
-              <p style={{color:'white',fontSize:10,lineHeight:1.9,fontFamily:'Orbitron',fontWeight:500,letterSpacing:0.5}}>
-                {'>'} {displayName} connected<br/>
-                {'>'} Server {online?'Online — EA Active':'Offline'}<br/>
-                {'>'} Analysing chart on linked account<br/>
-                {'>'} Waiting for trade execution<span className="animate-pulse" style={{color:a}}>|</span>
-              </p>
-            </div>
-
-            {/* Trade Logs */}
-            <div style={{padding:'14px 18px',display:'flex',flexDirection:'column',gap:8,maxHeight:280,overflowY:'auto'}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                <p style={{color:'rgba(255,255,255,0.3)',fontSize:10,letterSpacing:2.5,fontWeight:700,textTransform:'uppercase'}}>Trade Logs</p>
-                <span style={{color:a,fontSize:10,fontFamily:'Orbitron',fontWeight:700}}>{tradeLogs.length}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <p className="rubik-glitch" style={{color:'white',fontSize:13,letterSpacing:1.5,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{displayName}</p>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginTop:4}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:online?'#22c55e':'#ef4444',boxShadow:online?'0 0 10px rgba(34,197,94,0.7)':'0 0 10px rgba(239,68,68,0.7)',animation:online?'breathe 2s ease-in-out infinite':'none'}}/>
+                <span style={{fontFamily:'Orbitron',fontSize:10,color:online?'#22c55e':'#ef4444',letterSpacing:3,fontWeight:700}}>{online?'ONLINE — DRAG ME':'OFFLINE'}</span>
               </div>
-              {tradeLogs.length === 0 ? (
-                <div style={{textAlign:'center',padding:'24px 0'}}>
-                  <div style={{color:'rgba(255,255,255,0.18)',marginBottom:8,display:'flex',justifyContent:'center'}}><ClockIcon/></div>
-                  <p style={{color:'rgba(255,255,255,0.32)',fontSize:11}}>No executions yet</p>
-                </div>
-              ) : tradeLogs.slice().reverse().map(log => (
-                <div key={log.id} style={{background:`${a}08`,border:`1px solid ${a}22`,borderRadius:10,padding:'10px 12px'}}>
+            </div>
+            <button onClick={onClose} style={{width:30,height:30,borderRadius:8,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(255,255,255,0.5)',flexShrink:0}}><XIcon size={14}/></button>
+          </div>
+
+          {/* Trade Logs */}
+          <div style={{padding:'14px 18px',display:'flex',flexDirection:'column',gap:8,maxHeight:340,overflowY:'auto'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+              <p style={{color:'rgba(255,255,255,0.3)',fontSize:10,letterSpacing:2.5,fontWeight:700,textTransform:'uppercase'}}>Trade Logs</p>
+              <span style={{color:a,fontSize:10,fontFamily:'Orbitron',fontWeight:700}}>{tradeLogs.length}</span>
+            </div>
+            {tradeLogs.length === 0 ? (
+              <div style={{textAlign:'center',padding:'24px 0'}}>
+                <div style={{color:'rgba(255,255,255,0.18)',marginBottom:8,display:'flex',justifyContent:'center'}}><ClockIcon/></div>
+                <p style={{color:'rgba(255,255,255,0.32)',fontSize:11}}>Waiting for signals…</p>
+              </div>
+            ) : tradeLogs.slice().reverse().map(log => (
+              <div key={log.id} style={{background:`${a}08`,border:`1px solid ${a}22`,borderRadius:10,padding:'10px 12px'}}>
+                {log.step ? (
+                  <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+                    <span style={{color:'#fff',fontFamily:'Orbitron',fontSize:11,fontWeight:600}}>{'> '}{log.step}</span>
+                    <span style={{color:'rgba(255,255,255,0.3)',fontSize:9}}>{log.time}</span>
+                  </div>
+                ) : (<>
                   <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
                     <span style={{color:a,fontFamily:'Orbitron',fontWeight:700,fontSize:12}}>{log.pair}</span>
                     <span style={{color:'rgba(255,255,255,0.3)',fontSize:9}}>{log.time}</span>
@@ -367,15 +404,15 @@
                     <span style={{color:'rgba(255,255,255,0.4)',fontSize:10}}>SL:{log.sl}</span>
                     <span style={{color:'rgba(255,255,255,0.4)',fontSize:10}}>Lot:{log.lot}</span>
                   </div>
-                </div>
-              ))}
-            </div>
+                </>)}
+              </div>
+            ))}
+          </div>
 
-            {/* Actions */}
-            <div style={{padding:'14px 18px',display:'flex',gap:10,borderTop:`1px solid ${a}18`}}>
-              <button onClick={()=>{onStop?.();onClose();}} style={{flex:1,padding:'12px 0',borderRadius:10,background:`linear-gradient(135deg,${a},${d})`,border:'none',color:'white',fontFamily:'Orbitron',fontSize:11,fontWeight:700,letterSpacing:2,cursor:'pointer',boxShadow:`0 4px 16px ${g}`}}>STOP EA</button>
-              <button onClick={()=>{onRemove?.();onClose();}} style={{flex:1,padding:'12px 0',borderRadius:10,background:'rgba(255,255,255,0.06)',border:`1px solid ${a}40`,color:'white',fontFamily:'Orbitron',fontSize:11,fontWeight:700,letterSpacing:2,cursor:'pointer'}}>REMOVE</button>
-            </div>
+          {/* Actions */}
+          <div style={{padding:'14px 18px',display:'flex',gap:10,borderTop:`1px solid ${a}18`}}>
+            <button onClick={()=>{onStop?.();onClose();}} style={{flex:1,padding:'12px 0',borderRadius:10,background:`linear-gradient(135deg,${a},${d})`,border:'none',color:'white',fontFamily:'Orbitron',fontSize:11,fontWeight:700,letterSpacing:2,cursor:'pointer',boxShadow:`0 4px 16px ${g}`}}>STOP EA</button>
+            <button onClick={()=>{onRemove?.();onClose();}} style={{flex:1,padding:'12px 0',borderRadius:10,background:'rgba(255,255,255,0.06)',border:`1px solid ${a}40`,color:'white',fontFamily:'Orbitron',fontSize:11,fontWeight:700,letterSpacing:2,cursor:'pointer'}}>REMOVE</button>
           </div>
         </div>
       );
@@ -514,7 +551,7 @@
     };
 
     // ====== PinkSpectra Classic UI (Image 1 style - dark crimson) ======
-    const PinkSpectraHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange }) => {
+    const PinkSpectraHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -547,6 +584,7 @@
               </div>
               <button onClick={onOpenSettings} style={{width:36,height:36,borderRadius:'50%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',cursor:'pointer',color:'rgba(255,255,255,0.6)',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>ℹ️</button>
             </div>
+            <div style={{padding:'0 16px'}}><MentorPillTop mentorName={selectedEA?.mentorName||botSettings.name||'MOBI EA'} mentorLogo={selectedEA?.mentorLogo||displayImage} accent={accent}/></div>
             <div style={{position:'relative',width:'100%',height:340,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {displayImage ? <img src={displayImage} alt="Bot" style={{width:'100%',height:'100%',objectFit:'cover',filter:'saturate(1.2) brightness(0.8)'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:110,background:`radial-gradient(circle,${dark}44,transparent)`}}>🤖</div>}
               <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -566,7 +604,7 @@
               <p style={{color:'rgba(255,255,255,0.4)',fontSize:12,letterSpacing:2}}>powered by Robotrader</p>
             </div>
             <div style={{padding:'16px 16px 120px',display:'flex',flexDirection:'column',gap:10}}>
-              <p style={{color:'rgba(255,255,255,0.3)',fontSize:10,fontWeight:600,letterSpacing:3,marginBottom:4,textTransform:'uppercase'}}>Select an EA to use ...</p>
+              <ChartScannerBlock onClick={onOpenChartAnalyzer}/><p style={{color:'rgba(255,255,255,0.3)',fontSize:10,fontWeight:600,letterSpacing:3,marginBottom:4,textTransform:'uppercase'}}>Select an EA to use ...</p>
               {eas.map(ea=>(
                 <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:14,cursor:'pointer',background:selectedEA?.id===ea.id?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.025)',border:selectedEA?.id===ea.id?`1px solid ${accent}50`:'1px solid rgba(255,255,255,0.06)',transition:'all 0.3s',boxShadow:selectedEA?.id===ea.id?`0 0 20px ${accent}25`:'none'}}>
                   <div style={{width:52,height:52,borderRadius:10,overflow:'hidden',background:'#1a0000',border:`1px solid ${accent}30`,flexShrink:0}}>
@@ -593,7 +631,7 @@
     };
 
     // ====== PinkSpectra VIP UI (Image 2 style - cyan) ======
-    const PinkSpectraVIPHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange }) => {
+    const PinkSpectraVIPHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -606,6 +644,7 @@
       if (quotesEA) return <QuotesView eaName={quotesEA.name} onBack={()=>setQuotesEA(null)} botName={botSettings.name} isVIP={true} themeColor={themeColor} licenseSymbols={quotesEA.symbols} allowedSymbols={allowedSymbols||{}} onAllowedChange={onAllowedChange}/>;
       return (
         <div style={{position:'relative',minHeight:'100vh',background:'#00B4CC',overflow:'hidden'}}>
+          <div style={{padding:'14px 16px 0',background:'#00B4CC'}}><MentorPillTop mentorName={selectedEA?.mentorName||botSettings.name||'MOBI EA'} mentorLogo={selectedEA?.mentorLogo||displayImage} accent={cyan}/></div>
           <div style={{position:'relative',width:'100%',background:'#000',overflow:'hidden',minHeight:420}}>
             {displayImage ? <img src={displayImage} alt="Bot" style={{width:'100%',height:420,objectFit:'cover',opacity:0.85}}/> : <div style={{width:'100%',height:420,display:'flex',alignItems:'center',justifyContent:'center',fontSize:120,background:'#0a0000'}}>🤖</div>}
             {isVideo && videoSrc && <video src={videoSrc} autoPlay loop muted playsInline style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>}
@@ -635,7 +674,7 @@
             </div>
           </div>
           <div style={{background:'#00B4CC',padding:'0 16px 120px'}}>
-            <h2 style={{color:'white',fontFamily:'Orbitron',fontWeight:900,fontSize:22,letterSpacing:3,textAlign:'left',padding:'14px 0 12px',textShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>{displayName}</h2>
+            <h2 style={{color:'white',fontFamily:'Orbitron',fontWeight:900,fontSize:22,letterSpacing:3,textAlign:'left',padding:'14px 0 12px',textShadow:'0 2px 8px rgba(0,0,0,0.3)'}}>{displayName}</h2><ChartScannerBlock onClick={onOpenChartAnalyzer}/>
             {eas.map(ea=>(
               <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:16,cursor:'pointer',background:'white',marginBottom:12,boxShadow:'0 4px 16px rgba(0,0,0,0.15)',border:selectedEA?.id===ea.id?'2px solid #000':'2px solid transparent',transition:'all 0.25s'}}>
                 <div style={{width:48,height:48,borderRadius:12,overflow:'hidden',background:'#1a0000',border:'1px solid rgba(0,0,0,0.1)',flexShrink:0}}>
@@ -657,6 +696,34 @@
       );
     };
 
+
+    // ====== Shared: Mentor Pill (renders ABOVE an EA image card) ======
+    const MentorPillTop = ({ mentorName, mentorLogo, accent='#FF1A1A' }) => (
+      <div style={{display:'flex',justifyContent:'center',marginBottom:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(10px)',border:`1px solid ${accent}88`,boxShadow:`0 0 14px ${accent}88`,borderRadius:30,padding:'6px 14px 6px 6px'}}>
+          <div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',background:'#1a0000',border:`1.5px solid ${accent}`,flexShrink:0}}>
+            {mentorLogo ? <img src={mentorLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:accent}}>M</div>}
+          </div>
+          <div>
+            <p style={{color:'white',fontSize:12,fontWeight:700,letterSpacing:0.5,lineHeight:1.1}}>{mentorName}</p>
+            <p style={{color:accent,fontSize:9,fontWeight:600,letterSpacing:2,lineHeight:1.2,marginTop:2}}>TRADING</p>
+          </div>
+        </div>
+      </div>
+    );
+
+    // ====== Shared: AI Chart Scanner block (hazard neon glow) ======
+    const ChartScannerBlock = ({ onClick, accent='#FFD600' }) => (
+      <div onClick={onClick} className="neon-hazard" style={{borderRadius:18,padding:'16px 20px',cursor:'pointer',display:'flex',alignItems:'center',gap:14,marginBottom:14,overflow:'hidden'}}>
+        <div style={{width:44,height:44,borderRadius:12,background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,boxShadow:`0 0 12px ${accent}99`,flexShrink:0,position:'relative',zIndex:1}}>🧠</div>
+        <div style={{flex:1,position:'relative',zIndex:1}}>
+          <p style={{color:'#fff',fontWeight:800,fontSize:14,fontFamily:'Orbitron',letterSpacing:2,textShadow:`0 0 8px ${accent}`}}>AI CHART SCANNER</p>
+          <p style={{color:'rgba(255,255,255,0.75)',fontSize:11,marginTop:3,letterSpacing:0.5}}>Upload chart, get AI trade analysis</p>
+        </div>
+        <span style={{color:'#fff',fontSize:20,position:'relative',zIndex:1,textShadow:`0 0 8px ${accent}`}}>›</span>
+      </div>
+    );
+
     // ====== Shared Red Neon Frame helpers for new UIs ======
     const NEON_RED = '#FF1A1A';
     const neonGlow = (c=NEON_RED) => `0 0 0 1px ${c}, 0 0 12px ${c}99, inset 0 0 12px ${c}55`;
@@ -672,7 +739,7 @@
     const FadeOverlay = () => <div style={{position:'absolute',left:0,right:0,bottom:0,height:'45%',pointerEvents:'none',background:'linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.95) 100%)'}}/>;
 
     // ====== Still Pane pro UI ======
-    const StillPaneProHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
+    const StillPaneProHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -680,35 +747,50 @@
       const displayImage = botSettings.image || null;
       const handleRemove = (id) => { onRemoveEA(id); toast({ title:"Robot Removed", description:"Removed.", variant:"destructive" }); };
       if (quotesEA) return <QuotesView eaName={quotesEA.name} onBack={()=>setQuotesEA(null)} botName={botSettings.name} isVIP={false} themeColor={themeColor} licenseSymbols={quotesEA.symbols} allowedSymbols={allowedSymbols||{}} onAllowedChange={onAllowedChange}/>;
-      const r = NEON_RED;
+      const r = themeColor?.accent || NEON_RED;
+      const mentorName = selectedEA?.mentorName || botSettings.name || 'MOBI EA';
+      const mentorLogo = selectedEA?.mentorLogo || displayImage;
       return (
-        <div style={{minHeight:'100vh',background:'#000',padding:'14px 16px 130px',position:'relative'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <div style={{width:36,height:36,borderRadius:'50%',background:'#0a0a14',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🤖</div>
-              <div>
-                <p style={{color:'white',fontSize:13,fontWeight:700}}>mkhize.pro</p>
-                <p style={{color:'rgba(255,255,255,0.4)',fontSize:10}}>5 December 2025</p>
+        <div style={{minHeight:'100vh',background:'#000',padding:'14px 16px 130px',position:'relative',overflow:'hidden'}}>
+          {displayImage && <img src={displayImage} alt="" style={{position:'fixed',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.28,zIndex:0,pointerEvents:'none'}}/>}
+          {displayImage && <div style={{position:'fixed',inset:0,background:'linear-gradient(180deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.65) 60%,rgba(0,0,0,0.92) 100%)',zIndex:1,pointerEvents:'none'}}/>}
+          <div style={{position:'relative',zIndex:2}}>
+          <div style={{display:'flex',justifyContent:'center',marginTop:20,marginBottom:24}}>
+            {/* EA card with mentor pill at top */}
+            <div style={{position:'relative',width:'100%',maxWidth:340,borderRadius:32,overflow:'hidden',background:'#0a0000',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}33, 0 0 28px ${r}88, 0 0 60px ${r}44`,aspectRatio:'4/5'}}>
+              {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:110,color:r,opacity:0.2}}>EA</div>}
+              {/* Corner accents */}
+              <div style={{position:'absolute',top:0,left:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'32px 0 0 0',pointerEvents:'none'}}/>
+              <div style={{position:'absolute',top:0,right:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 32px 0 0',pointerEvents:'none'}}/>
+              <div style={{position:'absolute',bottom:0,left:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'0 0 0 32px',pointerEvents:'none'}}/>
+              <div style={{position:'absolute',bottom:0,right:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 0 32px 0',pointerEvents:'none'}}/>
+              {/* Mentor pill centered at top of card */}
+              <div style={{position:'absolute',top:14,left:0,right:0,display:'flex',justifyContent:'center',zIndex:5,pointerEvents:'none'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(10px)',border:`1px solid ${r}88`,boxShadow:`0 0 14px ${r}88`,borderRadius:30,padding:'6px 14px 6px 6px'}}>
+                  <div style={{width:28,height:28,borderRadius:'50%',overflow:'hidden',background:'#1a0000',border:`1.5px solid ${r}`,flexShrink:0}}>
+                    {mentorLogo ? <img src={mentorLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:r}}>M</div>}
+                  </div>
+                  <div>
+                    <p style={{color:'white',fontSize:11,fontWeight:700,letterSpacing:0.5}}>{mentorName}</p>
+                    <p style={{color:r,fontSize:9,fontWeight:600,letterSpacing:2,lineHeight:1}}>TRADING</p>
+                  </div>
+                </div>
+              </div>
+              {displayImage && <FadeOverlay/>}
+              <div style={{position:'absolute',bottom:24,left:0,right:0,textAlign:'center',padding:'0 16px'}}>
+                <h1 style={{color:'white',fontWeight:800,fontSize:30,textShadow:'0 4px 20px rgba(0,0,0,0.9)'}}>{displayName}</h1>
               </div>
             </div>
-            <button onClick={onOpenSettings} style={{background:'rgba(255,255,255,0.08)',border:'none',color:'white',padding:'6px 14px',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer'}}>Follow</button>
           </div>
-          <div style={{display:'flex',justifyContent:'center',marginTop:20,marginBottom:24}}>
-            <div style={{width:240,height:240,borderRadius:'50%',overflow:'hidden',boxShadow:`0 0 0 3px ${r}, 0 0 60px ${r}aa, 0 0 120px ${r}66`,background:'#1a0000'}}>
-              {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:90}}>🤖</div>}
-            </div>
-          </div>
-          <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:13,marginBottom:6}}>Your Trading With</p>
-          <h1 style={{textAlign:'center',color:'white',fontWeight:800,fontSize:36,marginBottom:18}}>{displayName}</h1>
-          <div style={{display:'flex',justifyContent:'center',marginBottom:40}}>
-            <div style={{padding:'10px 26px',borderRadius:30,boxShadow:neonGlow(r),background:'#0a0000'}}>
-              <span style={{color:'white',fontSize:13,fontWeight:600}}>Powered By <span style={{color:r}}>MOBI EA</span></span>
-            </div>
-          </div>
-          <div style={{borderRadius:60,padding:'14px',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.06)',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:32}}>
+          <div style={{position:'relative',borderRadius:28,padding:'14px',marginBottom:32,background:'rgba(10,0,0,0.7)',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}22, 0 0 20px ${r}55`}}>
+            <div style={{position:'absolute',top:0,left:0,width:28,height:28,borderTop:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'28px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:28,height:28,borderTop:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 28px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'0 0 0 28px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 0 28px 0',pointerEvents:'none'}}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
             {[
               {label:'Remove',icon:<TrashIcon/>,action:()=>selectedEA&&handleRemove(selectedEA.id),big:false},
-              {label:'Start',icon:<PlayIcon size={22} color={r}/>,action:()=>selectedEA&&onStartTrading(selectedEA),big:true},
+              {label:showDraggableIcon?'Stop':'Start',icon:showDraggableIcon?<SquareIcon size={22} color={r}/>:<PlayIcon size={22} color={r}/>,action:()=>selectedEA&&onStartTrading(selectedEA),big:true},
               {label:'Quotes',icon:<span style={{color:r,fontSize:22,fontWeight:700}}>$</span>,action:()=>selectedEA&&setQuotesEA(selectedEA),big:false},
             ].map(b=>(
               <button key={b.label} onClick={b.action} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:r,padding:'10px 0'}}>
@@ -716,18 +798,19 @@
                 <span style={{color:'white',fontSize:12,fontWeight:500}}>{b.label}</span>
               </button>
             ))}
+            </div>
           </div>
-          <p style={{color:'rgba(255,255,255,0.6)',fontSize:14,marginBottom:12}}>Robots List:</p>
+          <ChartScannerBlock onClick={onOpenChartAnalyzer}/><p style={{color:'rgba(255,255,255,0.6)',fontSize:14,marginBottom:12}}>Robots List:</p>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             {eas.map(ea=>(
-              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 18px',borderRadius:60,cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)'}}>
+              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 18px',borderRadius:60,cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`}}>
                 <div style={{width:48,height:48,borderRadius:'50%',overflow:'hidden',background:'#1a0000',flexShrink:0,boxShadow:`0 0 0 1px ${r}`}}>
                   {displayImage?<img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🤖</div>}
                 </div>
                 <p style={{color:r,fontWeight:600,fontSize:16}}>{botSettings.name||ea.name}</p>
               </div>
             ))}
-            <div onClick={()=>setIsLicenseModalOpen(true)} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 18px',borderRadius:60,cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)'}}>
+            <div onClick={()=>setIsLicenseModalOpen(true)} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 18px',borderRadius:60,cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`}}>
               <div style={{width:48,height:48,borderRadius:'50%',background:'#0a0000',flexShrink:0,boxShadow:`0 0 0 1px ${r}`,display:'flex',alignItems:'center',justifyContent:'center',color:r}}><ArrowLeftIcon/></div>
               <div>
                 <p style={{color:r,fontWeight:700,fontSize:16}}>Connect New EA</p>
@@ -736,12 +819,13 @@
             </div>
           </div>
           <LicenseKeyModal isOpen={isLicenseModalOpen} onClose={()=>setIsLicenseModalOpen(false)} onSuccess={onAddEA} tc={themeColor}/>
+          </div>
         </div>
       );
     };
 
     // ====== Sicario Nova V1 UI ======
-    const SicarioNovaHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
+    const SicarioNovaHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -749,33 +833,56 @@
       const displayImage = botSettings.image || null;
       const handleRemove = (id) => { onRemoveEA(id); toast({ title:"Robot Removed", description:"Removed.", variant:"destructive" }); };
       if (quotesEA) return <QuotesView eaName={quotesEA.name} onBack={()=>setQuotesEA(null)} botName={botSettings.name} isVIP={false} themeColor={themeColor} licenseSymbols={quotesEA.symbols} allowedSymbols={allowedSymbols||{}} onAllowedChange={onAllowedChange}/>;
-      const r = NEON_RED;
+      const r = themeColor?.accent || NEON_RED;
       const aStyle = getActionStyle(buttonStyle, r);
+      const mentorName = selectedEA?.mentorName || botSettings.name || 'MOBI EA';
+      const mentorLogo = selectedEA?.mentorLogo || displayImage;
       return (
-        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px'}}>
-          <button onClick={onOpenSettings} style={{width:44,height:44,borderRadius:12,background:'rgba(255,255,255,0.06)',border:'none',color:'white',cursor:'pointer',display:'flex',flexDirection:'column',gap:3,padding:'12px 10px',alignItems:'center',justifyContent:'center'}}>
-            <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-            <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-            <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-          </button>
-          <div style={{display:'flex',justifyContent:'center',marginTop:14,marginBottom:18}}>
-            <div style={{position:'relative',width:280,height:280,borderRadius:'50%',overflow:'hidden',boxShadow:`0 0 0 2px ${r}, 0 0 60px ${r}aa`,background:'#1a0000'}}>
-              {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:110}}>🤖</div>}
-              {displayImage && <FadeOverlay/>}
+        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px',position:'relative',overflow:'hidden'}}>
+          {displayImage && <img src={displayImage} alt="" style={{position:'fixed',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.28,zIndex:0,pointerEvents:'none'}}/>}
+          {displayImage && <div style={{position:'fixed',inset:0,background:'linear-gradient(180deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.65) 60%,rgba(0,0,0,0.92) 100%)',zIndex:1,pointerEvents:'none'}}/>}
+          <div style={{position:'relative',zIndex:2}}>
+          {/* EA Image Card with mentor pill at top */}
+          <div style={{position:'relative',borderRadius:32,overflow:'hidden',marginTop:14,marginBottom:18,aspectRatio:'4/5',background:'#0a0000',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}33, 0 0 28px ${r}88, 0 0 60px ${r}44`}}>
+            {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:140,color:r,opacity:0.2}}>EA</div>}
+            {/* Corner accents */}
+            <div style={{position:'absolute',top:0,left:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'32px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 32px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'0 0 0 32px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 0 32px 0',pointerEvents:'none'}}/>
+            {/* Mentor pill centered at top of card */}
+            <div style={{position:'absolute',top:14,left:0,right:0,display:'flex',justifyContent:'center',zIndex:5,pointerEvents:'none'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(10px)',border:`1px solid ${r}88`,boxShadow:`0 0 14px ${r}88`,borderRadius:30,padding:'6px 14px 6px 6px'}}>
+                <div style={{width:28,height:28,borderRadius:'50%',overflow:'hidden',background:'#1a0000',border:`1.5px solid ${r}`,flexShrink:0}}>
+                  {mentorLogo ? <img src={mentorLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:r}}>M</div>}
+                </div>
+                <div>
+                  <p style={{color:'white',fontSize:11,fontWeight:700,letterSpacing:0.5}}>{mentorName}</p>
+                  <p style={{color:r,fontSize:9,fontWeight:600,letterSpacing:2,lineHeight:1}}>TRADING</p>
+                </div>
+              </div>
+            </div>
+            {displayImage && <FadeOverlay/>}
+            <div style={{position:'absolute',bottom:30,left:0,right:0,textAlign:'center'}}>
+              <h1 style={{color:'white',fontFamily:'Orbitron',fontWeight:700,fontSize:32,letterSpacing:1}}>{displayName}</h1>
+              <p style={{color:'rgba(255,255,255,0.45)',fontSize:14,marginTop:4}}>{mentorName}</p>
             </div>
           </div>
-          <h1 style={{textAlign:'center',color:'white',fontFamily:'Orbitron',fontWeight:700,fontSize:38,letterSpacing:1,marginBottom:6}}>{displayName}</h1>
-          <p style={{textAlign:'center',color:'rgba(255,255,255,0.45)',fontSize:16,marginBottom:30}}>Rikuscro</p>
-          <div style={{position:'relative',borderRadius:24,overflow:'hidden',boxShadow:neonGlow(r),marginBottom:28,minHeight:130}}>
-            {displayImage && <img src={displayImage} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.35}}/>}
-            <div style={{position:'relative',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',padding:'18px 12px',alignItems:'center',background:'rgba(0,0,0,0.55)'}}>
+          {/* Button frame with neon styling */}
+          <div style={{position:'relative',borderRadius:28,overflow:'hidden',marginBottom:28,minHeight:130,background:'rgba(10,0,0,0.7)',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}22, 0 0 20px ${r}55`}}>
+            <div style={{position:'absolute',top:0,left:0,width:28,height:28,borderTop:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'28px 0 0 0',pointerEvents:'none',zIndex:2}}/>
+            <div style={{position:'absolute',top:0,right:0,width:28,height:28,borderTop:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 28px 0 0',pointerEvents:'none',zIndex:2}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'0 0 0 28px',pointerEvents:'none',zIndex:2}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 0 28px 0',pointerEvents:'none',zIndex:2}}/>
+            {displayImage && <img src={displayImage} alt="" style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.18}}/>}
+            <div style={{position:'relative',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',padding:'18px 12px',alignItems:'center'}}>
               <button onClick={()=>selectedEA&&setQuotesEA(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
                 <div style={{width:52,height:52,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><ChartIcon/></div>
                 <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>QUOTES</span>
               </button>
               <button onClick={()=>selectedEA&&onStartTrading(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
                 <div style={{width:80,height:80,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',...(buttonStyle?aStyle:{background:`${r}33`,boxShadow:`0 0 30px ${r}99`})}}>{showDraggableIcon?<SquareIcon size={30} color={r}/>:<PlayIcon size={34} color={r}/>}</div>
-                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>TRADE</span>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>{showDraggableIcon?'STOP':'TRADE'}</span>
               </button>
               <button onClick={()=>selectedEA&&handleRemove(selectedEA.id)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
                 <div style={{width:52,height:52,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><TrashIcon/></div>
@@ -783,7 +890,7 @@
               </button>
             </div>
           </div>
-          <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:14,marginBottom:18}}>Powered by <span style={{color:r,fontWeight:600}}>MOBI EA</span></p>
+          <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:14,marginBottom:18}}>Powered by <span style={{color:r,fontWeight:600}}>MOBI EA</span></p><ChartScannerBlock onClick={onOpenChartAnalyzer}/>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             {eas.map(ea=>(
               <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{position:'relative',borderRadius:18,padding:'18px 22px',cursor:'pointer',overflow:'hidden',boxShadow:neonGlow(r),minHeight:78}}>
@@ -794,18 +901,19 @@
                 </div>
               </div>
             ))}
-            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:18,padding:'18px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)'}}>
-              <p style={{color:'white',fontFamily:'Orbitron',fontWeight:700,fontSize:16,letterSpacing:2}}>CHART SCANNER</p>
-              <p style={{color:'rgba(255,255,255,0.4)',fontSize:11,marginTop:4,letterSpacing:1}}>AI-POWERED TRADE ANALYSIS</p>
+            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:18,padding:'18px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`,display:'flex',alignItems:'center',gap:14}}>
+              <div style={{width:32,height:32,borderRadius:'50%',background:r,display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><PlusIcon/></div>
+              <p style={{color:'white',fontFamily:'Orbitron',fontWeight:700,fontSize:15,letterSpacing:2}}>CONNECT NEW ROBOT</p>
             </div>
           </div>
           <LicenseKeyModal isOpen={isLicenseModalOpen} onClose={()=>setIsLicenseModalOpen(false)} onSuccess={onAddEA} tc={themeColor}/>
+          </div>
         </div>
       );
     };
 
     // ====== Specter X pro+ UI ======
-    const SpecterXProHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
+    const SpecterXProHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -813,71 +921,84 @@
       const displayImage = botSettings.image || null;
       const handleRemove = (id) => { onRemoveEA(id); toast({ title:"Robot Removed", description:"Removed.", variant:"destructive" }); };
       if (quotesEA) return <QuotesView eaName={quotesEA.name} onBack={()=>setQuotesEA(null)} botName={botSettings.name} isVIP={false} themeColor={themeColor} licenseSymbols={quotesEA.symbols} allowedSymbols={allowedSymbols||{}} onAllowedChange={onAllowedChange}/>;
-      const r = NEON_RED;
+      const r = themeColor?.accent || NEON_RED;
       const aStyle = getActionStyle(buttonStyle, r);
+      const mentorName = selectedEA?.mentorName || botSettings.name || 'MOBI EA';
+      const mentorLogo = selectedEA?.mentorLogo || displayImage;
       return (
-        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <button onClick={onOpenSettings} style={{width:44,height:44,borderRadius:12,background:'rgba(255,255,255,0.06)',border:'none',color:'white',cursor:'pointer',display:'flex',flexDirection:'column',gap:3,padding:'12px 10px',alignItems:'center',justifyContent:'center'}}>
-              <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-              <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-              <div style={{width:18,height:2,background:'white',borderRadius:2}}/>
-            </button>
-            <div style={{display:'flex',alignItems:'center',gap:8,boxShadow:neonGlow(r),padding:'6px 16px 6px 6px',borderRadius:30}}>
-              <div style={{width:32,height:32,borderRadius:'50%',overflow:'hidden',background:'#1a0000'}}>
-                {displayImage?<img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🤖</div>}
+        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px',position:'relative',overflow:'hidden'}}>
+          {displayImage && <img src={displayImage} alt="" style={{position:'fixed',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.28,zIndex:0,pointerEvents:'none'}}/>}
+          {displayImage && <div style={{position:'fixed',inset:0,background:'linear-gradient(180deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.65) 60%,rgba(0,0,0,0.92) 100%)',zIndex:1,pointerEvents:'none'}}/>}
+          <div style={{position:'relative',zIndex:2}}>
+          {/* EA Image Card */}
+          <div style={{position:'relative',borderRadius:32,overflow:'hidden',marginBottom:18,aspectRatio:'4/5',background:'#0a0000',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}33, 0 0 28px ${r}88, 0 0 60px ${r}44`}}>
+            {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:140,color:r,opacity:0.2}}>EA</div>}
+            {/* Corner accent lines */}
+            <div style={{position:'absolute',top:0,left:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'32px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 32px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'0 0 0 32px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 0 32px 0',pointerEvents:'none'}}/>
+            {/* Mentor pill centered at top of card */}
+            <div style={{position:'absolute',top:14,left:0,right:0,display:'flex',justifyContent:'center',zIndex:5,pointerEvents:'none'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(10px)',border:`1px solid ${r}88`,boxShadow:`0 0 14px ${r}88`,borderRadius:30,padding:'6px 14px 6px 6px'}}>
+                <div style={{width:28,height:28,borderRadius:'50%',overflow:'hidden',background:'#1a0000',border:`1.5px solid ${r}`,flexShrink:0}}>
+                  {mentorLogo ? <img src={mentorLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:r}}>M</div>}
+                </div>
+                <div>
+                  <p style={{color:'white',fontSize:11,fontWeight:700,letterSpacing:0.5}}>{mentorName}</p>
+                  <p style={{color:r,fontSize:9,fontWeight:600,letterSpacing:2,lineHeight:1}}>TRADING</p>
+                </div>
               </div>
-              <div>
-                <p style={{color:'white',fontSize:11,fontWeight:700,letterSpacing:1}}>{displayName.toUpperCase()}</p>
-              </div>
-            </div>
-          </div>
-          <div style={{position:'relative',borderRadius:18,overflow:'hidden',boxShadow:neonGlow(r),marginBottom:18,aspectRatio:'4/5',background:'#0a0000'}}>
-            {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:140}}>🤖</div>}
-            <div style={{position:'absolute',top:14,left:0,right:0,display:'flex',justifyContent:'center',pointerEvents:'none'}}>
-              <div style={{background:'rgba(0,0,0,0.7)',border:`1px solid ${r}`,boxShadow:`0 0 14px ${r}99`,color:r,padding:'6px 18px',borderRadius:30,fontSize:11,fontWeight:700,letterSpacing:3}}>TRADING</div>
             </div>
             <FadeOverlay/>
             <div style={{position:'absolute',bottom:30,left:0,right:0,textAlign:'center'}}>
               <h1 style={{color:'white',fontWeight:800,fontSize:34,textShadow:'0 4px 20px rgba(0,0,0,0.9)'}}>{displayName}</h1>
             </div>
           </div>
-          <div style={{borderRadius:60,padding:'14px',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',alignItems:'center',marginBottom:18}}>
-            <button onClick={()=>selectedEA&&setQuotesEA(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
-              <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><ChartIcon/></div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>QUOTES</span>
-            </button>
-            <button onClick={()=>selectedEA&&(showDraggableIcon?onRemoveEA(selectedEA.id):onStartTrading(selectedEA))} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
-              <div style={{width:62,height:62,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...(buttonStyle?aStyle:{background:`${r}33`,boxShadow:`0 0 24px ${r}99`})}}><SquareIcon size={26} color={r}/></div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>STOP</span>
-            </button>
-            <button onClick={()=>selectedEA&&handleRemove(selectedEA.id)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
-              <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><TrashIcon/></div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>REMOVE</span>
-            </button>
+          {/* Button frame with neon border */}
+          <div style={{position:'relative',borderRadius:28,padding:'18px 10px',marginBottom:18,background:'rgba(10,0,0,0.7)',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}22, 0 0 20px ${r}55`}}>
+            <div style={{position:'absolute',top:0,left:0,width:28,height:28,borderTop:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'28px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:28,height:28,borderTop:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 28px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'0 0 0 28px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 0 28px 0',pointerEvents:'none'}}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',alignItems:'center'}}>
+              <button onClick={()=>selectedEA&&setQuotesEA(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
+                <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><ChartIcon/></div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>QUOTES</span>
+              </button>
+              <button onClick={()=>selectedEA&&onStartTrading(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
+                <div style={{width:62,height:62,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...(buttonStyle?aStyle:{background:`${r}33`,boxShadow:`0 0 24px ${r}99`})}}>{showDraggableIcon?<SquareIcon size={26} color={r}/>:<PlayIcon size={26} color={r}/>}</div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>{showDraggableIcon?'STOP':'START'}</span>
+              </button>
+              <button onClick={()=>selectedEA&&handleRemove(selectedEA.id)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
+                <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><TrashIcon/></div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>REMOVE</span>
+              </button>
+            </div>
           </div>
-          <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:14,marginBottom:18}}>Powered by <span style={{color:r,fontWeight:600}}>MOBI EA</span></p>
+          <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:14,marginBottom:18}}>Powered by <span style={{color:r,fontWeight:600}}>MOBI EA</span></p><ChartScannerBlock onClick={onOpenChartAnalyzer}/>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             {eas.map(ea=>(
-              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)',display:'flex',alignItems:'center',gap:14}}>
+              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`,display:'flex',alignItems:'center',gap:14}}>
                 <div style={{width:44,height:44,borderRadius:'50%',overflow:'hidden',background:'#1a0000',boxShadow:`0 0 0 1px ${r}`}}>
                   {displayImage?<img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>🤖</div>}
                 </div>
                 <p style={{color:'white',fontWeight:700,fontSize:15,flex:1}}>{botSettings.name||ea.name}</p>
               </div>
             ))}
-            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)',display:'flex',alignItems:'center',gap:14}}>
+            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`,display:'flex',alignItems:'center',gap:14}}>
               <div style={{width:32,height:32,borderRadius:'50%',background:r,display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><PlusIcon/></div>
               <p style={{color:'white',fontWeight:700,fontSize:14,letterSpacing:1}}>CONNECT NEW ROBOT</p>
             </div>
           </div>
           <LicenseKeyModal isOpen={isLicenseModalOpen} onClose={()=>setIsLicenseModalOpen(false)} onSuccess={onAddEA} tc={themeColor}/>
+          </div>
         </div>
       );
     };
 
     // ====== Neuro Scalper UI ======
-    const NeuroScalperHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
+    const NeuroScalperHomeView = ({ eas, selectedEA, setSelectedEA, onAddEA, onRemoveEA, onStartTrading, showDraggableIcon, botSettings, onOpenSettings, onOpenChartAnalyzer, themeColor, allowedSymbols, onAllowedChange, buttonStyle }) => {
       const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
       const [quotesEA, setQuotesEA] = useState(null);
       const toast = useToast();
@@ -885,38 +1006,66 @@
       const displayImage = botSettings.image || null;
       const handleRemove = (id) => { onRemoveEA(id); toast({ title:"Robot Removed", description:"Removed.", variant:"destructive" }); };
       if (quotesEA) return <QuotesView eaName={quotesEA.name} onBack={()=>setQuotesEA(null)} botName={botSettings.name} isVIP={false} themeColor={themeColor} licenseSymbols={quotesEA.symbols} allowedSymbols={allowedSymbols||{}} onAllowedChange={onAllowedChange}/>;
-      const r = NEON_RED;
+      const r = themeColor?.accent || NEON_RED;
       const aStyle = getActionStyle(buttonStyle, r);
+      const mentorName = selectedEA?.mentorName || botSettings.name || 'MOBI EA';
+      const mentorLogo = selectedEA?.mentorLogo || displayImage;
       return (
-        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px'}}>
-          <div style={{position:'relative',borderRadius:24,overflow:'hidden',boxShadow:neonGlow(r),marginBottom:24,aspectRatio:'1/1',background:'#0a0000'}}>
-            {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:140}}>🤖</div>}
-            <button onClick={onOpenSettings} style={{position:'absolute',top:12,right:12,width:30,height:30,borderRadius:'50%',background:'rgba(0,0,0,0.6)',border:'none',color:'white',cursor:'pointer',fontSize:14,zIndex:2}}>✕</button>
+        <div style={{minHeight:'100vh',background:'#000',padding:'16px 18px 130px',position:'relative',overflow:'hidden'}}>
+          {displayImage && <img src={displayImage} alt="" style={{position:'fixed',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:0.28,zIndex:0,pointerEvents:'none'}}/>}
+          {displayImage && <div style={{position:'fixed',inset:0,background:'linear-gradient(180deg,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.65) 60%,rgba(0,0,0,0.92) 100%)',zIndex:1,pointerEvents:'none'}}/>}
+          <div style={{position:'relative',zIndex:2}}>
+          {/* EA Image Card with mentor pill inside */}
+          <div style={{position:'relative',borderRadius:32,overflow:'hidden',marginBottom:24,aspectRatio:'1/1',background:'#0a0000',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}33, 0 0 28px ${r}88, 0 0 60px ${r}44`}}>
+            {displayImage ? <img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:140,color:r,opacity:0.2}}>EA</div>}
+            {/* Corner accent lines */}
+            <div style={{position:'absolute',top:0,left:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'32px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:40,height:40,borderTop:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 32px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderLeft:`2.5px solid ${r}`,borderRadius:'0 0 0 32px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:40,height:40,borderBottom:`2.5px solid ${r}`,borderRight:`2.5px solid ${r}`,borderRadius:'0 0 32px 0',pointerEvents:'none'}}/>
+            {/* Mentor pill centered at top of card */}
+            <div style={{position:'absolute',top:14,left:0,right:0,display:'flex',justifyContent:'center',zIndex:5,pointerEvents:'none'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(0,0,0,0.72)',backdropFilter:'blur(10px)',border:`1px solid ${r}88`,boxShadow:`0 0 14px ${r}88`,borderRadius:30,padding:'6px 14px 6px 6px'}}>
+                <div style={{width:28,height:28,borderRadius:'50%',overflow:'hidden',background:'#1a0000',border:`1.5px solid ${r}`,flexShrink:0}}>
+                  {mentorLogo ? <img src={mentorLogo} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:r}}>M</div>}
+                </div>
+                <div>
+                  <p style={{color:'white',fontSize:11,fontWeight:700,letterSpacing:0.5}}>{mentorName}</p>
+                  <p style={{color:r,fontSize:9,fontWeight:600,letterSpacing:2,lineHeight:1}}>TRADING</p>
+                </div>
+              </div>
+            </div>
             <FadeOverlay/>
             <div style={{position:'absolute',bottom:24,left:0,right:0,textAlign:'center'}}>
               <h1 style={{color:'white',fontWeight:800,fontSize:32,textShadow:'0 4px 20px rgba(0,0,0,0.9)'}}>{displayName}</h1>
-              <p style={{color:'rgba(255,255,255,0.7)',fontSize:13,letterSpacing:2,marginTop:6}}>FINANCIAL TRADERS MARKET</p>
             </div>
           </div>
-          <div style={{borderRadius:24,padding:'18px 12px',boxShadow:neonGlow(r),background:'rgba(0,0,0,0.5)',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',alignItems:'center',marginBottom:20}}>
-            <button onClick={()=>selectedEA&&setQuotesEA(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
-              <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:'white',...aStyle}}><ChartIcon/></div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'rgba(255,255,255,0.7)'}}>PAIRS</span>
-            </button>
-            <button onClick={()=>selectedEA&&(showDraggableIcon?onRemoveEA(selectedEA.id):onStartTrading(selectedEA))} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
-              <div style={{width:56,height:56,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',...(buttonStyle?aStyle:{border:'2px solid white'})}}><SquareIcon size={22} color="white"/></div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>STOP</span>
-            </button>
-            <button onClick={onOpenSettings} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
-              <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'white',...(buttonStyle?aStyle:{border:'1.5px solid white'})}}>i</div>
-              <span style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'rgba(255,255,255,0.7)'}}>INFO</span>
-            </button>
+          {/* Button frame with neon corner styling */}
+          <div style={{position:'relative',borderRadius:28,padding:'18px 12px',marginBottom:20,background:'rgba(10,0,0,0.7)',border:`1.5px solid ${r}55`,boxShadow:`0 0 0 1px ${r}22, 0 0 20px ${r}55`}}>
+            <div style={{position:'absolute',top:0,left:0,width:28,height:28,borderTop:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'28px 0 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',top:0,right:0,width:28,height:28,borderTop:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 28px 0 0',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,left:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderLeft:`2px solid ${r}`,borderRadius:'0 0 0 28px',pointerEvents:'none'}}/>
+            <div style={{position:'absolute',bottom:0,right:0,width:28,height:28,borderBottom:`2px solid ${r}`,borderRight:`2px solid ${r}`,borderRadius:'0 0 28px 0',pointerEvents:'none'}}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',alignItems:'center'}}>
+              <button onClick={()=>selectedEA&&setQuotesEA(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
+                <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',color:r,...aStyle}}><ChartIcon/></div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'rgba(255,255,255,0.7)'}}>PAIRS</span>
+              </button>
+              <button onClick={()=>selectedEA&&onStartTrading(selectedEA)} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:6,color:'white'}}>
+                <div style={{width:56,height:56,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',...(buttonStyle?aStyle:{background:`${r}33`,boxShadow:`0 0 24px ${r}99`})}}>{showDraggableIcon?<SquareIcon size={22} color={r}/>:<PlayIcon size={22} color={r}/>}</div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2}}>{showDraggableIcon?'STOP':'START'}</span>
+              </button>
+              <button onClick={onOpenSettings} style={{background:'transparent',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,color:'white'}}>
+                <div style={{width:44,height:44,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:r,...aStyle}}>i</div>
+                <span style={{fontSize:11,fontWeight:700,letterSpacing:2,color:'rgba(255,255,255,0.7)'}}>INFO</span>
+              </button>
+            </div>
           </div>
           <p style={{textAlign:'center',color:'rgba(255,255,255,0.55)',fontSize:13,marginBottom:24,letterSpacing:1}}>MOBI EA</p>
-          <p style={{color:'white',fontSize:16,fontWeight:700,marginBottom:12}}>Robot List</p>
+          <ChartScannerBlock onClick={onOpenChartAnalyzer}/><p style={{color:'white',fontSize:16,fontWeight:700,marginBottom:12}}>Robot List</p>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             {eas.map(ea=>(
-              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{borderRadius:60,padding:'10px 18px',cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)',display:'flex',alignItems:'center',gap:14}}>
+              <div key={ea.id} onClick={()=>setSelectedEA(ea)} style={{borderRadius:60,padding:'10px 18px',cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`,display:'flex',alignItems:'center',gap:14}}>
                 <div style={{width:48,height:48,borderRadius:'50%',overflow:'hidden',background:'#1a0000',boxShadow:`0 0 0 1px ${r}`}}>
                   {displayImage?<img src={displayImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🤖</div>}
                 </div>
@@ -924,12 +1073,13 @@
                 <span style={{color:'rgba(255,255,255,0.5)',fontSize:18}}>›</span>
               </div>
             ))}
-            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:'rgba(255,26,26,0.04)',display:'flex',alignItems:'center',justifyContent:'center',gap:10}}>
+            <div onClick={()=>setIsLicenseModalOpen(true)} style={{borderRadius:60,padding:'14px 22px',cursor:'pointer',boxShadow:neonGlow(r),background:`${r}0a`,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}>
               <div style={{width:24,height:24,borderRadius:'50%',background:r,display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}><PlusIcon/></div>
               <p style={{color:'white',fontWeight:700,fontSize:14,letterSpacing:1}}>CONNECT NEW ROBOT</p>
             </div>
           </div>
           <LicenseKeyModal isOpen={isLicenseModalOpen} onClose={()=>setIsLicenseModalOpen(false)} onSuccess={onAddEA} tc={themeColor}/>
+          </div>
         </div>
       );
     };
@@ -981,8 +1131,6 @@
               {id:'square',label:'SQUARE UI',b:'#C41E3A',bg:'rgba(196,30,58,0.15)'},
               {id:'glass',label:'GLASS UI',b:'#ffffff',bg:'rgba(255,255,255,0.18)'},
               {id:'universe',label:'UNIVERSE UI',b:'#3b82f6',bg:'radial-gradient(circle, rgba(59,130,246,0.4), rgba(30,58,138,0.2))'},
-              {id:'pinkspectra',label:'PINKSPECTRA',b:'#C41E3A',bg:'linear-gradient(135deg,rgba(139,0,0,0.5),rgba(196,30,58,0.3))'},
-              {id:'pinkspectra_vip',label:'PINKSPECTRA+',b:'#00C8E0',bg:'linear-gradient(135deg,rgba(0,180,204,0.5),rgba(0,200,224,0.3))'},
               {id:'still_pane',label:'STILL PANE PRO',b:'#FF1A1A',bg:'linear-gradient(135deg,rgba(255,26,26,0.4),rgba(139,0,0,0.3))'},
               {id:'sicario_nova',label:'SICARIO NOVA V1',b:'#FF1A1A',bg:'linear-gradient(135deg,rgba(255,26,26,0.4),rgba(80,0,0,0.3))'},
               {id:'specter_x',label:'SPECTER X PRO+',b:'#FF1A1A',bg:'linear-gradient(135deg,rgba(255,26,26,0.4),rgba(40,0,0,0.3))'},
@@ -1797,6 +1945,11 @@ const HomeView = ({
           </p>
         </div>
 
+        {selectedEA && (
+          <div style={{padding:'14px 16px 0'}}>
+            <MentorPillTop mentorName={selectedEA.mentorName||botSettings.name||'MOBI EA'} mentorLogo={selectedEA.mentorLogo||botSettings.image||botSettings.iconImage} accent={(themeColor||colorMap.red).accent}/>
+          </div>
+        )}
         {/* ================= EA CARD SWITCH ================= */}
         {selectedEA && (() => {
           const CardComp = interfaceMode === "square" ? EACardSquare
@@ -1841,6 +1994,8 @@ const HomeView = ({
           >
             Robot List
           </p>
+
+          <ChartScannerBlock onClick={onOpenChartAnalyzer} accent={'#FFD600'}/>
 
           {eas.map((ea) => (
             <EAListItem
@@ -1978,6 +2133,7 @@ const HomeView = ({
             </div>
 
             {selectedEA && (<>
+              <div style={{padding:'8px 16px 0'}}><MentorPillTop mentorName={selectedEA.mentorName||botSettings.name||'MOBI EA'} mentorLogo={selectedEA.mentorLogo||botSettings.image||botSettings.iconImage} accent={a}/></div>
               <div style={{display:'flex',justifyContent:'center',paddingTop:20}}>
                 <div style={{width:100,height:100,borderRadius:'50%',padding:3,background:`linear-gradient(135deg,${a},${d})`,boxShadow:`0 0 50px ${g}, 0 0 100px ${a}40`}}>
                   <div style={{width:'100%',height:'100%',borderRadius:'50%',overflow:'hidden',background:'#111'}}>
@@ -2013,7 +2169,7 @@ const HomeView = ({
             </>)}
 
             <div style={{padding:'28px 16px 120px',display:'flex',flexDirection:'column',gap:10}}>
-              <p style={{color:`${a}50`,fontSize:10,fontWeight:600,letterSpacing:3,marginBottom:4}}>ROBOT LIST</p>
+              <ChartScannerBlock onClick={onOpenChartAnalyzer}/><p style={{color:`${a}50`,fontSize:10,fontWeight:600,letterSpacing:3,marginBottom:4}}>ROBOT LIST</p>
               {eas.map(ea => <VIPEAListItem key={ea.id} name={botSettings.name} isSelected={selectedEA?.id===ea.id} onClick={()=>setSelectedEA(ea)} botImage={botSettings.iconImage||botSettings.image} isActive={showDraggableIcon&&selectedEA?.id===ea.id} onRemove={()=>handleRemove(ea.id)} tc={tc}/>)}
               <button onClick={()=>setIsLicenseModalOpen(true)} style={{width:'100%',borderRadius:14,padding:'16px 18px',display:'flex',alignItems:'center',gap:12,background:'transparent',border:`1px dashed ${a}40`,cursor:'pointer',color:a,transition:'all 0.3s'}}>
                 <div style={{width:40,height:40,borderRadius:10,background:`${a}15`,display:'flex',alignItems:'center',justifyContent:'center'}}><PlusIcon/></div>
@@ -2242,7 +2398,7 @@ const HomeView = ({
           const result = await mtFetch(platForId, '/OrderSend', {
             id: params.accountId, symbol: params.symbol, operation: op,
             volume: params.volume, stoploss: params.stopLoss, takeprofit: params.takeProfit,
-            placedType: 'Manual', comment: 'MOBI EA',
+            placedType: 'Manual', comment: `${(params.botName||'BOT')}-Mobi EA`,
           });
           return { ticket: result };
         }
@@ -2454,7 +2610,6 @@ const HomeView = ({
       const a = tc.accent;
       const sections = [
         { title:'Bot Settings', desc:'Name, avatar & interface', icon:'⚙️', action:onOpenSettings },
-        { title:'AI Analyzer', desc:'Chart analysis powered by AI', icon:'🧠', action:onOpenChartAnalyzer },
       ];
       return (
         <div style={{padding:'20px 16px',display:'flex',flexDirection:'column',gap:20,minHeight:'calc(100vh - 80px)',position:'relative',zIndex:5}} className="animate-fade-in">
@@ -2688,8 +2843,8 @@ const HomeView = ({
     const App = () => {
       const [showSplash, setShowSplash] = useState(true);
       const [activeTab, setActiveTab] = useState('home');
-      const [eas, setEas] = useState([]);
-      const [selectedEA, setSelectedEA] = useState(null);
+      const [eas, setEas] = useState(()=>{try{const s=localStorage.getItem('savedEAs');return s?JSON.parse(s):[];}catch{return [];}});
+      const [selectedEA, setSelectedEA] = useState(()=>{try{const s=localStorage.getItem('savedEAs');const arr=s?JSON.parse(s):[];return arr.length>0?arr[0]:null;}catch{return null;}});
       const [showDraggableIcon, setShowDraggableIcon] = useState(false);
       const [tradingEA, setTradingEA] = useState(null);
       const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -2859,6 +3014,7 @@ const HomeView = ({
       const [interfaceMode, setInterfaceMode] = useState(()=>{try{return localStorage.getItem('interfaceMode')||'normal';}catch{return 'normal';}});
       const [buttonStyle, setButtonStyle] = useState(()=>{try{return localStorage.getItem('buttonStyle')||'rou';}catch{return 'rou';}});
       useEffect(()=>{localStorage.setItem('interfaceMode',interfaceMode);},[interfaceMode]);
+      useEffect(()=>{localStorage.setItem('savedEAs',JSON.stringify(eas));},[eas]);
       useEffect(()=>{if(eas.length>0&&!selectedEA)setSelectedEA(eas[0]);},[eas,selectedEA]);
 
       const handleAddEA = (key, licenseData) => {
@@ -2956,6 +3112,17 @@ const HomeView = ({
       const [showExecution, setShowExecution] = useState(false);
       const [showBotPopup, setShowBotPopup] = useState(false);
       const [executionLogs, setExecutionLogs] = useState([]);
+      const [iconPulse, setIconPulse] = useState(false);
+      const triggerIconPulse = () => { setIconPulse(true); setTimeout(()=>setIconPulse(false), 4500); };
+      const sendPhoneNotification = (title, body) => {
+        try {
+          if ('Notification' in window) {
+            if (Notification.permission === 'granted') new Notification(title, { body });
+            else if (Notification.permission !== 'denied') Notification.requestPermission().then(p=>{ if(p==='granted') new Notification(title,{body}); });
+          }
+        } catch(_) {}
+      };
+      useEffect(() => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch(_){} }, []);
       const speakText = (text) => { if('speechSynthesis' in window){const u=new SpeechSynthesisUtterance(text);u.rate=0.95;u.pitch=1.1;window.speechSynthesis.speak(u);} };
       const [tradeDelayTimer, setTradeDelayTimer] = useState(null);
       const [tradeDelaySeconds, setTradeDelaySeconds] = useState(0);
@@ -2966,11 +3133,11 @@ const HomeView = ({
           setShowDraggableIcon(false);setShowExecution(false);setShowBotPopup(false);setTradingEA(null);
           toast({title:"Stopped",description:"Trading robot stopped."});
         } else {
-          speakText("Trade will execute in 20 minutes!");
-          setShowDraggableIcon(true);setTradeDelaySeconds(1200);
+          speakText("Trade will execute in 1 minute!");
+          setShowDraggableIcon(true);setTradeDelaySeconds(60);
           const interval=setInterval(()=>{setTradeDelaySeconds(prev=>{if(prev<=1){clearInterval(interval);setTradeDelayTimer(null);setShowExecution(true);return 0;}return prev-1;});},1000);
           setTradeDelayTimer(interval);
-          toast({title:"Scheduled",description:"Execution in 20 minutes."});
+          toast({title:"Scheduled",description:"Execution in 1 minute."});
         }
       };
 
@@ -2985,7 +3152,7 @@ const HomeView = ({
           const url = buildUrl('/OrderSend', {
             id: params.accountId, symbol: params.symbol, operation: op,
             volume: params.volume, stoploss: params.stopLoss, takeprofit: params.takeProfit,
-            placedType: 'Manual', comment: 'MOBI EA',
+            placedType: 'Manual', comment: `${(botSettings?.name||'BOT')}-Mobi EA`,
           });
           const resp = await fetch(url);
           const txt = await resp.text();
@@ -3033,12 +3200,31 @@ const HomeView = ({
         }
       };
 
+      const pushStepLog = (step) => {
+        setExecutionLogs(prev => [...prev, { id: Date.now()+Math.random(), time: new Date().toLocaleTimeString(), step }]);
+      };
       const handleSignalExecute = async (signal) => {
         setPendingSignal(null);
         setShowDraggableIcon(true);
+        setShowBotPopup(true);
+        triggerIconPulse();
+        sendPhoneNotification(`📡 New Signal: ${signal.direction} ${signal.symbol}`, `TP ${signal.tp} • SL ${signal.sl} • Lot ${signal.lotSize}`);
+        // Seed step logs into the floating trade panel (no execute prompt)
+        const steps = [
+          'Accepting disclaimer...',
+          'Linking account...',
+          `Selecting symbol ${signal.symbol}`,
+          `${signal.direction} ${signal.symbol === 'XAUUSD' ? 'GOLD' : signal.symbol}`,
+          `TP ${signal.tp}`,
+          `SL ${signal.sl}`,
+        ];
+        for (const s of steps) { pushStepLog(s); await new Promise(r=>setTimeout(r,250)); }
         await executeTrade(signal);
-        setExecutionLogs(prev => [...prev, { id: Date.now(), time: new Date().toLocaleString(), pair: signal.symbol, action: signal.direction, tp: signal.tp, sl: signal.sl, lot: signal.lotSize, order: '#' + (309304330 + prev.length) }]);
+        setExecutionLogs(prev => [...prev, { id: Date.now(), time: new Date().toLocaleTimeString(), pair: signal.symbol, action: signal.direction, tp: signal.tp, sl: signal.sl, lot: signal.lotSize, order: '#' + (309304330 + prev.length) }]);
+        triggerIconPulse();
       };
+      // Auto-execute as soon as a new signal arrives — no prompt
+      useEffect(() => { if (pendingSignal) { handleSignalExecute(pendingSignal); } /* eslint-disable-next-line */ }, [pendingSignal]);
 
       const handleSaveSettings = (name,image,video,iconImage) => {
         const s={name,image,video,iconImage}; setBotSettings(s); localStorage.setItem('botSettings',JSON.stringify(s));
@@ -3049,12 +3235,10 @@ const HomeView = ({
         switch(activeTab) {
           case 'home':
             if (interfaceMode==='vip') return <VIPHomeView eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} executionLogs={executionLogs} onColorChange={handleColorChange} themeColor={themeColor} onNavigate={setActiveTab} onStopTrading={handleFullStop} onSwitchMode={m=>{setInterfaceMode(m);localStorage.setItem('interfaceMode',m);}} onEffect={setActiveEffect} onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='pinkspectra') return <PinkSpectraHomeView eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} onNavigate={setActiveTab} onStopTrading={handleFullStop} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='pinkspectra_vip') return <PinkSpectraVIPHomeView eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} onNavigate={setActiveTab} onStopTrading={handleFullStop} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='still_pane') return <StillPaneProHomeView buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='sicario_nova') return <SicarioNovaHomeView buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='specter_x') return <SpecterXProHomeView buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
-            if (interfaceMode==='neuro_scalper') return <NeuroScalperHomeView buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
+            if (interfaceMode==='still_pane') return <StillPaneProHomeView onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon||!!tradeDelayTimer} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
+            if (interfaceMode==='sicario_nova') return <SicarioNovaHomeView onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon||!!tradeDelayTimer} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
+            if (interfaceMode==='specter_x') return <SpecterXProHomeView onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon||!!tradeDelayTimer} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
+            if (interfaceMode==='neuro_scalper') return <NeuroScalperHomeView onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} buttonStyle={buttonStyle} eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon||!!tradeDelayTimer} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} themeColor={themeColor} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
             return <HomeView eas={eas} selectedEA={selectedEA} setSelectedEA={setSelectedEA} onAddEA={handleAddEA} onRemoveEA={handleRemoveEA} onStartTrading={handleStartTrading} showDraggableIcon={showDraggableIcon||!!tradeDelayTimer} botSettings={botSettings} onOpenSettings={()=>setIsSettingsModalOpen(true)} onColorChange={handleColorChange} themeColor={themeColor} onNavigate={setActiveTab} onStopTrading={handleFullStop} onSwitchMode={m=>{setInterfaceMode(m);localStorage.setItem('interfaceMode',m);}} onEffect={setActiveEffect} onChangePic={img=>{const s={...botSettings,image:img};setBotSettings(s);localStorage.setItem('botSettings',JSON.stringify(s));}} tradeDelaySeconds={tradeDelaySeconds} onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} isListening={isListening} voiceTranscript={voiceTranscript} onToggleVoice={toggleVoiceListening} interfaceMode={interfaceMode} allowedSymbols={allowedSymbols} onAllowedChange={handleAllowedChange}/>;
           case 'metatrader': return <MetaTraderView isVIP={interfaceMode==='vip'} themeColor={themeColor}/>;
           case 'settings': return <SettingsView themeColor={themeColor} onColorChange={handleColorChange} themeName={themeName} currentFont={appFont} onFontChange={handleFontChange} onEffect={setActiveEffect} onOpenSettings={()=>setIsSettingsModalOpen(true)} onOpenChartAnalyzer={()=>setShowChartAnalyzer(true)} botSettings={botSettings} interfaceMode={interfaceMode} onInterfaceModeChange={m=>{setInterfaceMode(m);localStorage.setItem('interfaceMode',m);}} isListening={isListening} voiceTranscript={voiceTranscript} onToggleVoice={toggleVoiceListening}/>;
@@ -3066,21 +3250,20 @@ const HomeView = ({
         <div style={{minHeight:'100vh',background:'#080808'}}>
           <BackgroundSymbolRain themeColor={themeColor}/>
           {showSplash && <SplashScreen onComplete={()=>setShowSplash(false)}/>}
-          {showDraggableIcon && <DraggableBotIcon image={botSettings.iconImage||botSettings.image} onClose={handleFullStop} onClick={handleIconClick} tc={themeColor}/>}
+          {showDraggableIcon && <DraggableBotIcon image={botSettings.iconImage||botSettings.image} onClose={handleFullStop} onClick={handleIconClick} tc={themeColor} pulse={iconPulse}/>}
           {showExecution && <ExecutionFlow onComplete={handleExecutionComplete} tradeData={tradeData}/>}
-          {pendingSignal && !showExecution && (
-            <SignalTradePanel
-              signal={pendingSignal}
-              onExecute={handleSignalExecute}
-              onDismiss={()=>setPendingSignal(null)}
-              tc={themeColor}
-              botName={botSettings.name}
-              botImage={botSettings.iconImage||botSettings.image}
-            />
-          )}
           {showBotPopup && <BotStatusPopup botName={botSettings.name} botImage={botSettings.iconImage||botSettings.image} onClose={()=>setShowBotPopup(false)} onRemove={()=>{if(selectedEA)handleRemoveEA(selectedEA.id);}} onStop={handleFullStop} onQuotes={()=>setShowBotPopup(false)} tc={themeColor} logs={executionLogs} isOnline={showDraggableIcon}/>}
           <VisualEffectsOverlay effect={activeEffect} onDone={()=>setActiveEffect(null)} themeColor={themeColor}/>
-          <ChartAnalyzer isOpen={showChartAnalyzer} onClose={()=>setShowChartAnalyzer(false)} onExecute={(r,sym)=>{setTradeData({symbol:sym,direction:r.direction,entry:r.entry,tp:r.tp,sl:r.sl,lotSize:r.lotSize});setShowChartAnalyzer(false);setShowExecution(true);setShowDraggableIcon(true);}}/>
+          <ChartAnalyzer isOpen={showChartAnalyzer} onClose={()=>setShowChartAnalyzer(false)} onExecute={async (r,sym)=>{
+            setShowChartAnalyzer(false);
+            setShowDraggableIcon(true); setShowBotPopup(true); triggerIconPulse();
+            sendPhoneNotification(`🤖 AI Chart Execution: ${r.direction} ${sym}`, `TP ${r.tp} • SL ${r.sl} • Lot ${r.lotSize}`);
+            const steps = ['Accepting disclaimer...','Linking account...',`Selecting symbol ${sym}`,`${r.direction} ${sym==='XAUUSD'?'GOLD':sym}`,`TP ${r.tp}`,`SL ${r.sl}`];
+            for (const s of steps) { pushStepLog(s); await new Promise(res=>setTimeout(res,250)); }
+            await executeTrade({symbol:sym,direction:r.direction,tp:r.tp,sl:r.sl,lotSize:r.lotSize,platform:r.platform||'MT5'});
+            setExecutionLogs(prev => [...prev, { id: Date.now(), time: new Date().toLocaleTimeString(), pair: sym, action: r.direction, tp: r.tp, sl: r.sl, lot: r.lotSize, order: '#' + (309304330 + prev.length) }]);
+            triggerIconPulse();
+          }}/>
           <ColorPickerPanel isOpen={showColorPicker} onClose={()=>setShowColorPicker(false)} onColorChange={handleColorChange} currentColor={themeName} currentFont={appFont} onFontChange={handleFontChange} onEffect={setActiveEffect}/>
           <BotSettingsModal isOpen={isSettingsModalOpen} onClose={()=>setIsSettingsModalOpen(false)} interfaceMode={interfaceMode} onInterfaceModeChange={m=>{setInterfaceMode(m);localStorage.setItem("interfaceMode",m);}} buttonStyle={buttonStyle} onButtonStyleChange={s=>{setButtonStyle(s);localStorage.setItem("buttonStyle",s);}}/>
           <div style={{maxWidth:480,margin:'0 auto',paddingBottom:80}}>{renderContent()}</div>
